@@ -432,6 +432,73 @@ kwait(uint64 addr)
   }
 }
 
+
+int kwaitstat(uint64 addr)  {
+  struct proc *parent = myproc();
+  struct proc *child;
+  int hasChildren;
+  int pid;
+
+  if (addr == 0)
+    return -1;
+
+  acquire(&wait_lock);
+
+  while (1) {
+    hasChildren = 0;
+
+    // look for a child of htis parent
+    for (child = proc; child < &proc[NPROC]; child++) {
+
+      if (child->parent != parent)
+        continue;
+
+      acquire(&child->lock);
+      hasChildren = 1;
+
+      if (child->state == ZOMBIE) {
+        pid = child->pid;
+
+        // copy childs metrics into parent
+        int result = copyout(
+          parent->pagetable,
+          parent->sz,
+          addr,
+          (char *)&child->stats,
+          sizeof(child->stats)
+        );
+
+        if (result < 0) {
+          release(&child->lock);
+          release(&wait_lock);
+          return -1;
+        }
+
+        child->parent = 0;
+        freeproc(child);
+
+        release(&child->lock);
+        release(&wait_lock);
+
+        return pid;
+      }
+
+      release(&child->lock);
+    }
+
+    if (!hasChildren || killed(parent)) {
+      release(&wait_lock);
+      return -1;
+    }
+
+    sleep_prepare(parent);
+    release(&wait_lock);
+    sleep();
+    acquire(&wait_lock);
+  }
+}
+
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:

@@ -37,6 +37,14 @@ sys_wait(void)
 }
 
 uint64
+sys_waitstat(void)
+{
+  uint64 addr;
+  argaddr(0, &addr);
+  return kwaitstat(addr);
+}
+
+uint64
 sys_sbrk(void)
 {
   uint64 addr;
