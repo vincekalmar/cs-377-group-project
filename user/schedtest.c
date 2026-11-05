@@ -4,7 +4,7 @@
 #include "user/user.h"
 
 #define NUM_CHILDREN 3
-#define BASE_ITERATIONS 20000000
+#define BASE_ITERATIONS 200000000
 
 
 void cpu_work(int multiplier) {

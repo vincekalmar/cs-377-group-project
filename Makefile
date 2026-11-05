@@ -133,10 +133,6 @@ UPROGS=\
 	$U/_cat\
 	$U/_echo\
 	$U/_forktest\
-	UPROGS=\
-	$U/_cat\
-	$U/_echo\
-	$U/_forktest\
 	$U/_schedtest\
 	$U/_grep\
 	$U/_init\
