@@ -125,6 +125,14 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  // set stats
+  memset(&p->stats, 0, sizeof(p->stats));
+  p->stats.pid = p->pid;
+  p->stats.created = ticks;
+
+  p->runnable_start = 0;
+  p->running_start = 0;
+
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -225,6 +233,7 @@ userinit(void)
 
   p->cwd = namei("/");
 
+  p->runnable_start = ticks;
   p->state = RUNNABLE;
 
   release(&p->lock);
@@ -298,6 +307,7 @@ kfork(void)
   release(&wait_lock);
 
   acquire(&np->lock);
+  np->runnable_start = ticks;   // stats
   np->state = RUNNABLE;
   release(&np->lock);
 
@@ -353,6 +363,10 @@ kexit(int status)
   wakeup(p->parent);
 
   acquire(&p->lock);
+
+  // stats updates
+  p->stats.running += ticks - p->running_start;
+  p->stats.finished = ticks;
 
   p->xstate = status;
   p->state = ZOMBIE;
@@ -445,6 +459,10 @@ scheduler(void)
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if (p->state == RUNNABLE) {
+        p->stats.runnable += ticks - p->runnable_start;
+        if (p->stats.firstRun == 0) p->stats.firstRun = ticks;
+        p->running_start = ticks;
+
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
@@ -502,6 +520,11 @@ yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
+
+  // stats
+  p->stats.running += ticks - p->running_start;
+  p->runnable_start = ticks;
+
   p->state = RUNNABLE;
   sched();
   release(&p->lock);
@@ -565,6 +588,7 @@ sleep(void)
 
   acquire(&p->lock);
   if (p->chan != 0) {
+    p->stats.running += ticks - p->running_start;
     p->state = SLEEPING;
     sched();
   }
@@ -587,6 +611,7 @@ wakeup(void *chan)
       // If this waiting process has gotten so far as to actually
       // go to sleep, also set it back to RUNNING.
       if (p->state == SLEEPING) {
+        p->runnable_start = ticks;
         p->state = RUNNABLE;
       }
     }
@@ -611,6 +636,7 @@ kkill(int pid)
       p->killed = 1;
       if (p->state == SLEEPING) {
         // Wake process from sleep().
+        p->runnable_start = ticks;
         p->state = RUNNABLE;
       }
       release(&p->lock);
