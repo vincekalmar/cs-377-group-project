@@ -124,6 +124,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->priority = DEFAULT_PRIORITY;
 
   // set stats
   memset(&p->stats, 0, sizeof(p->stats));
@@ -171,6 +172,7 @@ freeproc(struct proc *p)
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
+  p->priority = 0;
   p->name[0] = 0;
   p->chan = 0;
   p->killed = 0;
@@ -283,6 +285,9 @@ kfork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // Children inherit the parent's base scheduling priority.
+  np->priority = p->priority;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -511,6 +516,7 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  int next_index = 0; // Rotate the scan start to break priority ties fairly.
 
   c->proc = 0;
   for (;;) {
@@ -522,32 +528,45 @@ scheduler(void)
     intr_on();
     intr_off();
 
-    int found = 0;
-    for (p = proc; p < &proc[NPROC]; p++) {
+    struct proc *chosen = 0;
+    int best_priority = -1;
+
+    // Find the highest-priority RUNNABLE process. On ties, the
+    // rotating scan start provides round-robin behavior.
+    for (int i = 0; i < NPROC; i++) {
+      p = &proc[(next_index + i) % NPROC];
       acquire(&p->lock);
-      if (p->state == RUNNABLE) {
-        p->stats.runnable += ticks - p->runnable_start;
-        if (p->stats.firstRun == 0) p->stats.firstRun = ticks;
-        p->running_start = ticks;
-
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Don't re-enable interrupts on release.
-        mycpu()->intena = 0;
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+      if (p->state == RUNNABLE &&
+          (chosen == 0 || p->priority > best_priority)) {
+        chosen = p;
+        best_priority = p->priority;
       }
       release(&p->lock);
     }
-    if (found == 0) {
+
+    if (chosen != 0) {
+      // Another CPU could change the process state after the scan.
+      // Recheck it while holding its lock before switching.
+      acquire(&chosen->lock);
+      if (chosen->state == RUNNABLE) {
+        chosen->stats.runnable += ticks - chosen->runnable_start;
+        if (chosen->stats.firstRun == 0)
+          chosen->stats.firstRun = ticks;
+        chosen->running_start = ticks;
+
+        // The process releases/reacquires its lock around swtch.
+        chosen->state = RUNNING;
+        c->proc = chosen;
+        swtch(&c->context, &chosen->context);
+
+        // Preserve the existing xv6 interrupt bookkeeping.
+        mycpu()->intena = 0;
+        c->proc = 0;
+
+        next_index = ((int)(chosen - proc) + 1) % NPROC;
+      }
+      release(&chosen->lock);
+    } else {
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
     }

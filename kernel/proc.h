@@ -81,6 +81,9 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+// Initial priority for every process; larger values are favored.
+#define DEFAULT_PRIORITY 10
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -91,6 +94,7 @@ struct proc {
   int killed;           // If non-zero, have been killed
   int xstate;           // Exit status to be returned to parent's wait
   int pid;              // Process ID
+  int priority;         // Base priority; protected by p->lock
 
   // wait_lock must be held when using this:
   struct proc *parent; // Parent process
